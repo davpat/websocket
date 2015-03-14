@@ -1,0 +1,24 @@
+{
+  "manifest_version": 2,
+
+  "name": "GTest",
+  "short_name": "GS SignalR",
+  "description": "WebSocket",
+  "version": "1.5.2",
+  "permissions": ["http://*/*", "https://*/*"],
+  "background": {
+    "scripts": ["jquery.js","jquery.signalR-2.2.0.js","background.js"],
+    "persistent": false
+  },
+  "content_scripts": [
+    {
+      "matches": ["http://grooveshark.com/*"],
+      "js": ["jquery.js","jquery.signalR-2.2.0.js","content_script.js"]
+    }
+  ],
+  "web_accessible_resources": [
+	  "content_script.js",
+	  "jquery.signalR-2.2.0.js",
+	  "jquery.js"
+  ]
+}

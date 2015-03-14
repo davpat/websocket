@@ -1,0 +1,341 @@
+﻿@Scripts.Render("~/bundles/jquery-validation")
+@Scripts.Render("~/bundles/jtable")
+@Scripts.Render("~/bundles/signalR")
+<script src="@Url.Content("~/signalr/hubs")" type="text/javascript"></script>
+<script src="@Url.Content("~/Scripts/jtable-custom-util.js")" type="text/javascript"></script>
+<script>
+    var myClientName = '@ViewBag.ClientName';
+    function createTable(toSelect)
+    {
+        var table = jtableBase("Locations");
+        table.selecting = toSelect;
+        table.defaultSorting = "WellName ASC";
+        table.actions = {
+            listAction: "/Location/List",
+            updateAction: "/Location/UpdateLocation?clientName=" + myClientName,
+            createAction: "/Location/CreateLocation?clientName=" + myClientName,
+            deleteAction: "/Location/DeleteLocation?clientName=" + myClientName
+        };
+
+        table.fields.WellName = {
+            title: "Well Name",
+            customHeader: function ()
+            {
+                return "<input type='text' class='header-filter' id='wellNameFilter' />";
+            },
+            width: "10%"
+        };
+
+        table.fields.Tanks = {
+            title: "Tanks",
+            customHeader: function ()
+            {
+                return "<input type='text' class='header-filter' id='tankIdFilter' />";
+            },
+            //What will be displayed inside the table
+            display: function (data)
+            {
+                var disp = "";
+                //If the record is available and Tanks is not null
+                if (data.record && data.record.Tanks)
+                {
+                    //Make a list of tanks
+                    disp = "<ul class='tank-list'>";
+                    //A tank for each entry in the csv string
+                    data.record.Tanks.split(",").forEach(function (item)
+                    {
+                        disp += "<li>" + item + "</li>";
+                    });
+                    disp += "</ul>";
+                }
+                return disp;
+            },
+            //What will be diplayed within the popup dialog for create/update
+            input: function (data)
+            {
+                //A hidden field for a csv string that contains the available tank values
+                var before = "<input id='tankParam' name='Tanks' type='hidden' />";
+                //To add a new tank
+                var after = "<a onclick='addTank()'>Add</a>";
+                //A list containing the current tanks
+                var disp = "<ul id='inputTankList' class='tank-list'>";
+                //If the record is available and Tanks is not null
+                if (data.record && data.record.Tanks)
+                {
+                    //Change the before string to hold the initial tank values
+                    before = "<input id='tankParam' name='Tanks' type='hidden' value='" + data.record.Tanks + "'/>";
+                    //An entry for every tank
+                    data.record.Tanks.split(",").forEach(function (item)
+                    {
+                        //Each entry had the tank name and a removal button
+                        disp += "<li><a onclick=removeTank(\'" + item + "\')>X </a><span>" + item + "</span></li>";
+                    });
+                }
+                disp += "</ul>";
+                return before + disp + after;
+            },
+            width: "5%"
+        };
+
+        table.fields.Pumper = {
+            title: "Pumper",
+            customHeader: function ()
+            {
+                return "<input type='text' class='header-filter' id='pumperFilter' />";
+            },
+            width: "10%",
+            input: function (data)
+            {
+                if (data.record)
+                {
+                    return "<input type='hidden' name='Pumper' id='PumperId' value='" + data.record.PumperId + "'/><span id='PumperName'>" + data.record.Pumper + "</span><a onClick='selectPumper($(\"#PumperId\").val())'>Select</a>";
+                }
+                return "<input type='hidden' name='Pumper' id='PumperId'/><span id='PumperName'></span><a onClick='selectPumper()'>Select</a>";
+            }
+        };
+        //An internal table for other contacts tied to that location
+        table.fields.OtherContacts = {
+            title: "Contacts",
+            width: "10%",
+            display: function (data)
+            {
+                //The button that opens the inner table
+                var buttonContacts = $("<button class='toggleButton'>Other Contacts</button>");
+                $(buttonContacts).click(function ()
+                {
+                    if ($(this).hasClass("toggleButtonDown"))
+                    {
+                        $("#tableContainer").jtable("closeChildTable", buttonContacts.closest("tr"));
+                    }
+                    else
+                    {
+                        var table = jtableBase();
+                        table.title = "Contacts for " + data.record.WellName;
+                        table.defaultSorting = "Name ASC";
+                        table.toolbar = {
+                            items: [{
+                                text: "Select Contacts",
+                                click: function ()
+                                {
+                                    selectContacts(data.record.Id);
+                                }
+                            }]
+                        };
+                        table.actions = {
+                            listAction: "/Contact/LocationList/" + data.record.Id,
+                            updateAction: "/Contact/UpdateContact?clientName=" + myClientName,
+                        };
+                        addContactTableSettings(table);
+
+                        $("#tableContainer").jtable("openChildTable", buttonContacts.closest("tr"), table, function (data)
+                        {
+                            data.childTable.jtable('load');
+                        });
+                    }
+                    $(this).toggleClass("toggleButtonDown");
+                });
+                return buttonContacts;
+            }
+        };
+
+        table.fields.Transporter = {
+            title: "Transporter",
+            customHeader: function ()
+            {
+                return "<input type='text' class='header-filter' id='transporterFilter' />";
+            },
+            width: "10%",
+        };
+
+        table.fields.District = {
+            title: "District",
+            customHeader: function ()
+            {
+                return "<input type='text' class='header-filter' id='districtFilter' />";
+            },
+            width: "10%",
+        };
+
+        table.fields.State = {
+            title: "State",
+            customHeader: function ()
+            {
+                return "<input type='text' class='header-filter' id='stateFilter' />";
+            },
+            width: "10%",
+        };
+
+        table.fields.County = {
+            title: "County",
+            customHeader: function ()
+            {
+                return "<input type='text' class='header-filter' id='countyFilter' />";
+            },
+            width: '10%',
+        };
+
+        table.formCreated = function (event, data)
+        {
+            $(data.form.parent().parent()).css({
+                "position": "absolute",
+                "left": "50%",
+                "top": "50%",
+                "width": "400px",
+                "height": "550px",
+                "margin-left": "-200px",
+                "margin-top": "-275px",
+                "display": "block"
+            });
+
+            data.form.children(":lt(8)").wrapAll("<div class='jtable-col1'/>");
+            data.form.children(":gt(0)").wrapAll("<div class='jtable-col2'/>");
+
+            $(data.form).validate({
+                rules: {
+                    WellName: { required: true }
+                },
+                messages: {
+                    WellName: {
+                        required: "A name is required"
+                    }
+                }
+            });
+        }
+
+        includeP8Information(table);
+        $("#tableContainer").jtable(table);
+        $("#tableContainer").jtable("load");
+
+        setUpFilterOverrides();
+        setUpP8Information();
+
+        var hub = $.connection.communicationHub;
+
+        //Deletes the record, but only visually
+        hub.client.deleteLocation = function (clientName, id)
+        {
+            if (clientName != myClientName)
+            {
+                $("#tableContainer").jtable("deleteRecord", {
+                    key: id,
+                    clientOnly: true
+                });
+            }
+        };
+
+        //Creates the record, but only visually
+        hub.client.createLocation = function (clientName, record)
+        {
+            if (clientName != myClientName)
+            {
+                $("#tableContainer").jtable("addRecord", {
+                    record: record,
+                    clientOnly: true
+                });
+            }
+        };
+
+        //Updates the record, but only visually
+        hub.client.updateLocation = function (clientName, record)
+        {
+            if (clientName != myClientName)
+            {
+                $("#tableContainer").jtable("updateRecord", {
+                    record: record,
+                    clientOnly: true
+                });
+            }
+        };
+
+        //Refreshes the child table when it might have changed
+        hub.client.refreshChildTable = function (id)
+        {
+            $("tr[data-record-key='" + id + "']").next().find(".jtable-child-table-container").jtable("load");
+        }
+
+        $.connection.hub.start();  
+    };
+
+    window.addEventListener("message", recieveMessage, false);
+    function recieveMessage(event)
+    {
+        if (event.data.st === "single")
+        {
+            $("#PumperId").val(event.data.ids);
+            $("#PumperName").html(event.data.name);
+        }
+        else if (event.data.st === "multiple")
+        {
+            $.ajax({
+                url: "/Location/AssignIds/" + event.data.locId + "?data=" + event.data.ids.toString(),
+                method: "POST"
+            });
+        }
+    }
+
+    function selectPumper(current)
+    {
+        if (!current)
+        {
+            current = "";
+        }
+        popupwindow("/Contact/Selection/" + current, 700, 750);
+    }
+
+    function selectContacts(locId)
+    {
+        popupwindow("/Contact/Selection/" + locId + "/multiple", "Contacts", 700, 750);
+    }
+
+    function FilterResultsList()
+    {
+        $("#tableContainer").jtable("load", {
+            data: JSON.stringify({
+                WellName: $("#wellNameFilter").val(),
+                TankId: $("#tankIdFilter").val(),
+                Pumper: $("#pumperFilter").val(),
+                Transporter: $("#transporterFilter").val(),
+                District: $("#districtFilter").val(),
+                State: $("#stateFilter").val(),
+                County: $("#countyFilter").val(),
+                P8RequestDate: $("#p8RequestDateFilter").val(),
+                ApprovedBarrels: $("#approvedBarrelsFilter").val(),
+                BarrelsSold: $("#barrelsSoldFilter").val(),
+                BOPD: $("#bopdFilter").val(),
+                p8IncreaseRequested: $("#p8IncreaseRequestedFilter").attr("data-value")
+            })
+        });
+    }
+
+    function addTank()
+    {
+        $("#addTankDialog #newTankName").val("");
+        $("#addTankDialog").dialog();
+    }
+
+    function addNewTank(item)
+    {
+        $("#tankParam").val(function (index, value)
+        {
+            if (value === "")
+            {
+                return item;
+            }
+            else
+            {
+                return value += "," + item;
+            }
+        });
+        $("#inputTankList").append("<li><a onclick=removeTank('" + item + "')>X </a><span>" + item + "</span></li>");
+        $("#addTankDialog").dialog("close");
+    }
+
+    function removeTank(item)
+    {
+        $("#tankParam").val(function (index, value)
+        {
+            return value.replace(item + ",", "").replace("," + item, "");
+        });
+        $("#inputTankList li span:contains('" + item + "')").parent().remove();
+    }
+</script>
